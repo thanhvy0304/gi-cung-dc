@@ -1,0 +1,88 @@
+
+name: Test Visual Monitoring API
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Test authorized API connection
+        env:
+          API_URL: ${{ secrets.VISUAL_API_URL }}
+          API_TOKEN: ${{ secrets.VISUAL_API_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          import urllib.error
+
+          url = os.environ["API_URL"]
+          token = os.environ["API_TOKEN"]
+
+          if not url or not token:
+              raise RuntimeError("Missing API configuration")
+
+          def request_api(payload):
+              body = json.dumps(payload).encode("utf-8")
+
+              req = urllib.request.Request(
+                  url,
+                  data=body,
+                  headers={
+                      "Content-Type": "application/json"
+                  },
+                  method="POST"
+              )
+
+              with urllib.request.urlopen(
+                  req, timeout=30
+              ) as response:
+                  return json.loads(
+                      response.read().decode("utf-8")
+                  )
+
+          result = request_api({
+              "token": token,
+              "action": "today"
+          })
+
+          if result.get("ok") is not True:
+              raise RuntimeError(
+                  "Authorized API request failed: " +
+                  str(result.get("error"))
+              )
+
+          print("AUTHORIZED API: PASS")
+          print("Timezone:", result.get("timezone"))
+          print("Sessions:", result.get("count"))
+
+          for session in result.get("sessions", []):
+              print(
+                  session.get("start_time"),
+                  "-",
+                  session.get("end_time"),
+                  "|",
+                  session.get("host_name")
+              )
+
+          invalid = request_api({
+              "token": "invalid-test-token",
+              "action": "today"
+          })
+
+          if (
+              invalid.get("ok") is not False
+              or invalid.get("error") != "UNAUTHORIZED"
+          ):
+              raise RuntimeError(
+                  "Unauthorized request was not rejected"
+              )
+
+          print("INVALID TOKEN REJECTED: PASS")
+          print("API CONNECTION TEST COMPLETED")
+          PY
